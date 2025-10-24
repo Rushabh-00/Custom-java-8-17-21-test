@@ -1,225 +1,95 @@
-name: Build Android JREs (8, 17, 21) for ARM32 + ARM64
+name: Build OpenJDK Multiarch
 
 on:
   push:
-    branches:
-      - main
-  pull_request:
-    branches:
-      - main
+    branches: [main]
   workflow_dispatch:
 
-env:
-  ANDROID_API: 29
-  NDK_VERSION: r28
-
 jobs:
-  build-java8:
-    name: Build Java 8 ARM32+64
+  build-jdk:
     runs-on: ubuntu-latest
+    env:
+      JAVA_8_VERSION: 8u362
+      JAVA_17_VERSION: 17.0.9
+      JAVA_21_VERSION: 21
+      WORKDIR: ${{ github.workspace }}/jdk-src
+      OUTPUT: ${{ github.workspace }}/jre-output
+
     steps:
-      - name: Checkout JDK 8 Source
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Install dependencies
         run: |
-          git clone https://github.com/openjdk/jdk8u.git jdk8
-          cd jdk8
-          git fetch --tags
+          sudo apt-get update
+          sudo apt-get install -y build-essential autoconf libx11-dev libxext-dev \
+                                  libxrender-dev libxtst-dev wget unzip python3 curl \
+                                  pkg-config unzip xz-utils git
 
-      - name: Install Dependencies
+      - name: Download Android NDK for cross-compilation
         run: |
-          sudo apt update
-          sudo apt install -y zip unzip make build-essential wget clang \
-                              openjdk-8-jdk autoconf libx11-dev libxext-dev \
-                              libxrender-dev libxtst-dev libxt-dev libasound2-dev \
-                              libcups2-dev libfreetype6-dev
+          wget https://dl.google.com/android/repository/android-ndk-r25b-linux.zip
+          unzip android-ndk-r25b-linux.zip
+          export ANDROID_NDK=$PWD/android-ndk-r25b
+          echo "ANDROID_NDK=$ANDROID_NDK" >> $GITHUB_ENV
 
-      # ---------- Cache NDK ----------
-      - name: Cache Android NDK
-        uses: actions/cache@v4
-        with:
-          path: android-ndk-${{ env.NDK_VERSION }}
-          key: ndk-${{ env.NDK_VERSION }}-${{ runner.os }}
-
-      - name: Download Android NDK
+      ##########################
+      # Java 8 ARM Builds
+      ##########################
+      - name: Build Java 8 ARM32
         run: |
-          if [ ! -d "android-ndk-${NDK_VERSION}" ]; then
-            wget https://dl.google.com/android/repository/android-ndk-${NDK_VERSION}-linux.zip
-            unzip -q android-ndk-${NDK_VERSION}-linux.zip
-          fi
-          echo "ANDROID_NDK_HOME=$PWD/android-ndk-${NDK_VERSION}" >> $GITHUB_ENV
-          echo "$PWD/android-ndk-${NDK_VERSION}/toolchains/llvm/prebuilt/linux-x86_64/bin" >> $GITHUB_PATH
-
-      # ---------- Patch config.sub/config.guess ----------
-      - name: Patch config files
-        run: |
-          cd jdk8/common/autoconf/build-aux
-          wget -O config.sub https://git.savannah.gnu.org/cgit/config.git/plain/config.sub
-          wget -O config.guess https://git.savannah.gnu.org/cgit/config.git/plain/config.guess
-
-      # ---------- ARM64 ----------
-      - name: Configure & Build Java 8 ARM64
-        working-directory: ./jdk8
-        run: |
-          TOOLCHAIN=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64
-          SYSROOT=$TOOLCHAIN/sysroot
-          CC=$TOOLCHAIN/bin/aarch64-linux-android${ANDROID_API}-clang
-          CXX=$TOOLCHAIN/bin/aarch64-linux-android${ANDROID_API}-clang++
-          export CC CXX TOOLCHAIN SYSROOT
-
-          chmod +x configure
-          ./configure \
-            --host=aarch64-linux-android \
-            --with-target-bits=64 \
-            --with-jvm-variants=server \
-            --with-boot-jdk=/usr/lib/jvm/java-8-openjdk-amd64 \
-            --with-toolchain-type=clang \
-            --with-sysroot=$SYSROOT
+          cd $WORKDIR/jdk8
+          # configure cross-compilation
+          export CC=$ANDROID_NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/armv7a-linux-androideabi21-clang
+          export CXX=$ANDROID_NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/armv7a-linux-androideabi21-clang++
+          bash configure --openjdk-target=arm-linux-android --disable-warnings-as-errors
           make images
-          mkdir -p ../out/arm64
-          cd build/linux-aarch64-server-release/images
-          if [ -d jre ]; then mv jre jre-android; else mkdir jre-android && cp -r jdk/bin jdk/lib jdk/release jre-android/; fi
-          zip -r jre-android-arm64-8.zip jre-android
-          mv jre-android-arm64-8.zip ../../../out/arm64/
+          # Repack server-only
+          bash ../../repackjre8-server-only.sh $WORKDIR $OUTPUT
 
-      - name: Clean before ARM32
-        run: rm -rf build/*
-
-      # ---------- ARM32 ----------
-      - name: Configure & Build Java 8 ARM32
-        working-directory: ./jdk8
+      - name: Build Java 8 ARM64
         run: |
-          TOOLCHAIN=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64
-          SYSROOT=$TOOLCHAIN/sysroot
-          CC=$TOOLCHAIN/bin/armv7a-linux-androideabi${ANDROID_API}-clang
-          CXX=$TOOLCHAIN/bin/armv7a-linux-androideabi${ANDROID_API}-clang++
-          export CC CXX TOOLCHAIN SYSROOT
-
-          chmod +x configure
-          ./configure \
-            --host=arm-linux-androideabi \
-            --with-target-bits=32 \
-            --with-jvm-variants=server \
-            --with-boot-jdk=/usr/lib/jvm/java-8-openjdk-amd64 \
-            --with-toolchain-type=clang \
-            --with-sysroot=$SYSROOT
+          cd $WORKDIR/jdk8
+          export CC=$ANDROID_NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android21-clang
+          export CXX=$ANDROID_NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android21-clang++
+          bash configure --openjdk-target=aarch64-linux-android --disable-warnings-as-errors
           make images
-          mkdir -p ../out/arm32
-          cd build/linux-arm-server-release/images
-          if [ -d jre ]; then mv jre jre-android; else mkdir jre-android && cp -r jdk/bin jdk/lib jdk/release jre-android/; fi
-          zip -r jre-android-arm32-8.zip jre-android
-          mv jre-android-arm32-8.zip ../../../out/arm32/
+          bash ../../repackjre8-server-only.sh $WORKDIR $OUTPUT
 
-      - name: Upload Java 8 artifacts
-        uses: actions/upload-artifact@v4
+      ##########################
+      # Java 17+ ARM Builds
+      ##########################
+      - name: Prepare config.sub/config.guess for Java 17/21
+        run: |
+          for ver in 17 21; do
+            cd $WORKDIR/jdk$ver
+            wget -O config.sub https://git.savannah.gnu.org/cgit/config.git/plain/config.sub
+            wget -O config.guess https://git.savannah.gnu.org/cgit/config.git/plain/config.guess
+            mkdir -p make/autoconf/build-aux
+            cp config.sub make/autoconf/build-aux/
+            cp config.guess make/autoconf/build-aux/
+          done
+
+      - name: Build Java 17 ARM64
+        run: |
+          cd $WORKDIR/jdk17
+          export CC=$ANDROID_NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android21-clang
+          export CXX=$ANDROID_NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android21-clang++
+          bash configure --openjdk-target=aarch64-linux-android --with-boot-jdk=$JAVA_HOME --disable-warnings-as-errors
+          make images
+          bash ../../repackjre17plus-server-only.sh $WORKDIR $OUTPUT
+
+      - name: Build Java 21 ARM64
+        run: |
+          cd $WORKDIR/jdk21
+          export CC=$ANDROID_NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android21-clang
+          export CXX=$ANDROID_NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android21-clang++
+          bash configure --openjdk-target=aarch64-linux-android --with-boot-jdk=$JAVA_HOME --disable-warnings-as-errors
+          make images
+          bash ../../repackjre17plus-server-only.sh $WORKDIR $OUTPUT
+
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v3
         with:
-          name: jre-android-8
-          path: |
-            jdk8/out/arm64/jre-android-arm64-8.zip
-            jdk8/out/arm32/jre-android-arm32-8.zip
-
-  build-java17-21:
-    name: Build Java 17+21 ARM32+64
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        include:
-          - java_version: 17
-            repo: https://github.com/openjdk/jdk17u.git
-          - java_version: 21
-            repo: https://github.com/openjdk/jdk21u.git
-    steps:
-      - name: Checkout JDK Source
-        run: |
-          git clone ${{ matrix.repo }} jdk
-          cd jdk
-          git fetch --tags
-
-      - name: Install Dependencies
-        run: |
-          sudo apt update
-          sudo apt install -y zip unzip make build-essential wget clang \
-                              openjdk-17-jdk autoconf libx11-dev libxext-dev \
-                              libxrender-dev libxtst-dev libxt-dev libasound2-dev \
-                              libcups2-dev libfreetype6-dev
-
-      # ---------- Cache NDK ----------
-      - name: Cache Android NDK
-        uses: actions/cache@v4
-        with:
-          path: android-ndk-${{ env.NDK_VERSION }}
-          key: ndk-${{ env.NDK_VERSION }}-${{ runner.os }}
-
-      - name: Download Android NDK
-        run: |
-          if [ ! -d "android-ndk-${NDK_VERSION}" ]; then
-            wget https://dl.google.com/android/repository/android-ndk-${NDK_VERSION}-linux.zip
-            unzip -q android-ndk-${NDK_VERSION}-linux.zip
-          fi
-          echo "ANDROID_NDK_HOME=$PWD/android-ndk-${NDK_VERSION}" >> $GITHUB_ENV
-          echo "$PWD/android-ndk-${NDK_VERSION}/toolchains/llvm/prebuilt/linux-x86_64/bin" >> $GITHUB_PATH
-
-      # ---------- Patch config files ----------
-      - name: Patch config.sub/config.guess
-        run: |
-          wget -O config.sub https://git.savannah.gnu.org/cgit/config.git/plain/config.sub
-          wget -O config.guess https://git.savannah.gnu.org/cgit/config.git/plain/config.guess
-          cp config.sub make/autoconf/build-aux/config.sub
-          cp config.guess make/autoconf/build-aux/config.guess
-
-      # ---------- ARM64 ----------
-      - name: Configure & Build ARM64
-        working-directory: ./jdk
-        run: |
-          TOOLCHAIN=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64
-          SYSROOT=$TOOLCHAIN/sysroot
-          CC=$TOOLCHAIN/bin/aarch64-linux-android${ANDROID_API}-clang
-          CXX=$TOOLCHAIN/bin/aarch64-linux-android${ANDROID_API}-clang++
-          export CC CXX TOOLCHAIN SYSROOT
-          bash configure \
-            --openjdk-target=aarch64-linux-android \
-            --with-toolchain-type=clang \
-            --with-sysroot=$SYSROOT \
-            --disable-warnings-as-errors \
-            --with-native-debug-symbols=none \
-            --with-jvm-variants=server \
-            --with-boot-jdk=/usr/lib/jvm/java-17-openjdk-amd64
-          make hotspot images
-          mkdir -p ../out/arm64
-          cd build/linux-aarch64-server-release/images
-          if [ -d jre ]; then mv jre jre-android; else mkdir jre-android && cp -r jdk/bin jdk/lib jdk/release jre-android/; fi
-          zip -r jre-android-arm64-${{ matrix.java_version }}.zip jre-android
-          mv jre-android-arm64-${{ matrix.java_version }}.zip ../../../out/arm64/
-
-      - name: Clean before ARM32
-        run: rm -rf build/*
-
-      # ---------- ARM32 ----------
-      - name: Configure & Build ARM32
-        working-directory: ./jdk
-        run: |
-          TOOLCHAIN=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64
-          SYSROOT=$TOOLCHAIN/sysroot
-          CC=$TOOLCHAIN/bin/armv7a-linux-androideabi${ANDROID_API}-clang
-          CXX=$TOOLCHAIN/bin/armv7a-linux-androideabi${ANDROID_API}-clang++
-          export CC CXX TOOLCHAIN SYSROOT
-          bash configure \
-            --openjdk-target=armv7a-linux-androideabi \
-            --with-toolchain-type=clang \
-            --with-sysroot=$SYSROOT \
-            --disable-warnings-as-errors \
-            --with-native-debug-symbols=none \
-            --with-jvm-variants=server \
-            --with-boot-jdk=/usr/lib/jvm/java-17-openjdk-amd64
-          make hotspot images
-          mkdir -p ../out/arm32
-          cd build/linux-arm-server-release/images
-          if [ -d jre ]; then mv jre jre-android; else mkdir jre-android && cp -r jdk/bin jdk/lib jdk/release jre-android/; fi
-          zip -r jre-android-arm32-${{ matrix.java_version }}.zip jre-android
-          mv jre-android-arm32-${{ matrix.java_version }}.zip ../../../out/arm32/
-
-      - name: Upload Java 17+21 artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: jre-android-${{ matrix.java_version }}
-          path: |
-            jdk/out/arm64/jre-android-arm64-${{ matrix.java_version }}.zip
-            jdk/out/arm32/jre-android-arm32-${{ matrix.java_version }}.zip
+          name: jre-server-only
+          path: $OUTPUT
