@@ -48,6 +48,13 @@ jobs:
           echo "ANDROID_NDK_HOME=$PWD/android-ndk-${NDK_VERSION}" >> $GITHUB_ENV
           echo "$PWD/android-ndk-${NDK_VERSION}/toolchains/llvm/prebuilt/linux-x86_64/bin" >> $GITHUB_PATH
 
+      # ---------- Patch config.sub/config.guess ----------
+      - name: Patch config files
+        run: |
+          cd jdk8/common/autoconf/build-aux
+          wget -O config.sub https://git.savannah.gnu.org/cgit/config.git/plain/config.sub
+          wget -O config.guess https://git.savannah.gnu.org/cgit/config.git/plain/config.guess
+
       # ---------- ARM64 ----------
       - name: Configure & Build Java 8 ARM64
         working-directory: ./jdk8
@@ -60,12 +67,12 @@ jobs:
 
           chmod +x configure
           ./configure \
+            --host=aarch64-linux-android \
             --with-target-bits=64 \
             --with-jvm-variants=server \
             --with-boot-jdk=/usr/lib/jvm/java-8-openjdk-amd64 \
             --with-toolchain-type=clang \
-            --with-sysroot=$SYSROOT \
-            --host=aarch64-linux-android
+            --with-sysroot=$SYSROOT
           make images
           mkdir -p ../out/arm64
           cd build/linux-aarch64-server-release/images
@@ -88,12 +95,12 @@ jobs:
 
           chmod +x configure
           ./configure \
+            --host=arm-linux-androideabi \
             --with-target-bits=32 \
             --with-jvm-variants=server \
             --with-boot-jdk=/usr/lib/jvm/java-8-openjdk-amd64 \
             --with-toolchain-type=clang \
-            --with-sysroot=$SYSROOT \
-            --host=arm-linux-androideabi
+            --with-sysroot=$SYSROOT
           make images
           mkdir -p ../out/arm32
           cd build/linux-arm-server-release/images
@@ -150,11 +157,11 @@ jobs:
           echo "ANDROID_NDK_HOME=$PWD/android-ndk-${NDK_VERSION}" >> $GITHUB_ENV
           echo "$PWD/android-ndk-${NDK_VERSION}/toolchains/llvm/prebuilt/linux-x86_64/bin" >> $GITHUB_PATH
 
-      # ---------- Patch config files for Android ----------
+      # ---------- Patch config files ----------
       - name: Patch config.sub/config.guess
         run: |
-          wget https://git.savannah.gnu.org/gitweb/?p=config.git;a=blob_plain;f=config.sub -O config.sub
-          wget https://git.savannah.gnu.org/gitweb/?p=config.git;a=blob_plain;f=config.guess -O config.guess
+          wget -O config.sub https://git.savannah.gnu.org/cgit/config.git/plain/config.sub
+          wget -O config.guess https://git.savannah.gnu.org/cgit/config.git/plain/config.guess
           cp config.sub make/autoconf/build-aux/config.sub
           cp config.guess make/autoconf/build-aux/config.guess
 
