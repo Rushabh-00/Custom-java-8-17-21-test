@@ -98,17 +98,18 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        java_version: [17, 21]
-        repo: 
-          17: https://github.com/openjdk/jdk17u.git
-          21: https://github.com/openjdk/jdk21u.git
+        include:
+          - java_version: 17
+            repo: https://github.com/openjdk/jdk17u.git
+          - java_version: 21
+            repo: https://github.com/openjdk/jdk21u.git
     env:
       ANDROID_API: 29
       NDK_VERSION: r25c
     steps:
       - name: Checkout JDK Source
         run: |
-          git clone ${{ matrix.repo[${{ matrix.java_version }}] }} jdk
+          git clone ${{ matrix.repo }} jdk
           cd jdk
           git fetch --tags
 
