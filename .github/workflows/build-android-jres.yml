@@ -9,13 +9,14 @@ on:
       - main
   workflow_dispatch:
 
+env:
+  ANDROID_API: 29
+  NDK_VERSION: r28
+
 jobs:
   build-java8:
     name: Build Java 8 ARM32+64
     runs-on: ubuntu-latest
-    env:
-      ANDROID_API: 29
-      NDK_VERSION: r25c
     steps:
       - name: Checkout JDK 8 Source
         run: |
@@ -31,10 +32,19 @@ jobs:
                               libxrender-dev libxtst-dev libxt-dev libasound2-dev \
                               libcups2-dev libfreetype6-dev
 
+      # ---------- Cache NDK ----------
+      - name: Cache Android NDK
+        uses: actions/cache@v4
+        with:
+          path: android-ndk-${{ env.NDK_VERSION }}
+          key: ndk-${{ env.NDK_VERSION }}-${{ runner.os }}
+
       - name: Download Android NDK
         run: |
-          wget https://dl.google.com/android/repository/android-ndk-${NDK_VERSION}-linux.zip
-          unzip -q android-ndk-${NDK_VERSION}-linux.zip
+          if [ ! -d "android-ndk-${NDK_VERSION}" ]; then
+            wget https://dl.google.com/android/repository/android-ndk-${NDK_VERSION}-linux.zip
+            unzip -q android-ndk-${NDK_VERSION}-linux.zip
+          fi
           echo "ANDROID_NDK_HOME=$PWD/android-ndk-${NDK_VERSION}" >> $GITHUB_ENV
           echo "$PWD/android-ndk-${NDK_VERSION}/toolchains/llvm/prebuilt/linux-x86_64/bin" >> $GITHUB_PATH
 
@@ -105,9 +115,6 @@ jobs:
             repo: https://github.com/openjdk/jdk17u.git
           - java_version: 21
             repo: https://github.com/openjdk/jdk21u.git
-    env:
-      ANDROID_API: 29
-      NDK_VERSION: r25c
     steps:
       - name: Checkout JDK Source
         run: |
@@ -123,14 +130,23 @@ jobs:
                               libxrender-dev libxtst-dev libxt-dev libasound2-dev \
                               libcups2-dev libfreetype6-dev
 
+      # ---------- Cache NDK ----------
+      - name: Cache Android NDK
+        uses: actions/cache@v4
+        with:
+          path: android-ndk-${{ env.NDK_VERSION }}
+          key: ndk-${{ env.NDK_VERSION }}-${{ runner.os }}
+
       - name: Download Android NDK
         run: |
-          wget https://dl.google.com/android/repository/android-ndk-${NDK_VERSION}-linux.zip
-          unzip -q android-ndk-${NDK_VERSION}-linux.zip
+          if [ ! -d "android-ndk-${NDK_VERSION}" ]; then
+            wget https://dl.google.com/android/repository/android-ndk-${NDK_VERSION}-linux.zip
+            unzip -q android-ndk-${NDK_VERSION}-linux.zip
+          fi
           echo "ANDROID_NDK_HOME=$PWD/android-ndk-${NDK_VERSION}" >> $GITHUB_ENV
           echo "$PWD/android-ndk-${NDK_VERSION}/toolchains/llvm/prebuilt/linux-x86_64/bin" >> $GITHUB_PATH
 
-      # Patch config files for Android
+      # ---------- Patch config files for Android ----------
       - name: Patch config.sub/config.guess
         run: |
           cp $ANDROID_NDK_HOME/build/tools/config.sub make/autoconf/build-aux/config.sub
