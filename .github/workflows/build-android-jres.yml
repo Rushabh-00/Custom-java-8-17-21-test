@@ -1,0 +1,135 @@
+name: Build Android JREs (8, 17, 21) for ARM32 + ARM64
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - java_version: 8
+            repo: https://github.com/openjdk/jdk8u.git
+          - java_version: 17
+            repo: https://github.com/openjdk/jdk17u.git
+          - java_version: 21
+            repo: https://github.com/openjdk/jdk21u.git
+
+    env:
+      ANDROID_API: 29
+      NDK_VERSION: r25c
+
+    steps:
+      - name: Checkout JDK Source
+        run: |
+          git clone ${{ matrix.repo }} jdk
+          cd jdk
+          git fetch --tags
+
+      - name: Install Dependencies
+        run: |
+          sudo apt update
+          sudo apt install -y zip unzip make build-essential wget clang \
+                              openjdk-17-jdk autoconf libx11-dev libxext-dev \
+                              libxrender-dev libxtst-dev libxt-dev libasound2-dev \
+                              libcups2-dev libfreetype6-dev
+
+      - name: Download Android NDK
+        run: |
+          wget https://dl.google.com/android/repository/android-ndk-${NDK_VERSION}-linux.zip
+          unzip -q android-ndk-${NDK_VERSION}-linux.zip
+          echo "ANDROID_NDK_HOME=$PWD/android-ndk-${NDK_VERSION}" >> $GITHUB_ENV
+          echo "$PWD/android-ndk-${NDK_VERSION}/toolchains/llvm/prebuilt/linux-x86_64/bin" >> $GITHUB_PATH
+
+      # ---------- ARM64 BUILD ----------
+      - name: Configure and Build ARM64 JRE
+        working-directory: ./jdk
+        env:
+          ANDROID_NDK_HOME: ${{ github.workspace }}/android-ndk-${{ env.NDK_VERSION }}
+          ANDROID_API: 29
+        run: |
+          TOOLCHAIN=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64
+          SYSROOT=$TOOLCHAIN/sysroot
+          CC=$TOOLCHAIN/bin/aarch64-linux-android${ANDROID_API}-clang
+          CXX=$TOOLCHAIN/bin/aarch64-linux-android${ANDROID_API}-clang++
+          export CC CXX TOOLCHAIN SYSROOT
+
+          # Special handling for Java 8 boot JDK
+          if [ "${{ matrix.java_version }}" = "8" ]; then
+            BOOT_JDK=/usr/lib/jvm/java-8-openjdk-amd64
+          else
+            BOOT_JDK=/usr/lib/jvm/java-17-openjdk-amd64
+          fi
+
+          bash configure \
+            --openjdk-target=aarch64-linux-android \
+            --with-toolchain-type=clang \
+            --with-sysroot=${SYSROOT} \
+            --disable-warnings-as-errors \
+            --with-native-debug-symbols=none \
+            --with-jvm-variants=server \
+            --with-boot-jdk=${BOOT_JDK}
+
+          make hotspot images
+          mkdir -p ../out/arm64
+          cd build/linux-aarch64-server-release/images
+          if [ -d jre ]; then
+            mv jre jre-android
+          else
+            mkdir jre-android
+            cp -r jdk/bin jdk/lib jdk/release jre-android/
+          fi
+          zip -r jre-android-arm64-${{ matrix.java_version }}.zip jre-android
+          mv jre-android-arm64-${{ matrix.java_version }}.zip ../../../out/arm64/
+
+      - name: Clean before ARM32 build
+        run: rm -rf jdk/build/*
+
+      # ---------- ARM32 BUILD ----------
+      - name: Configure and Build ARM32 JRE
+        working-directory: ./jdk
+        env:
+          ANDROID_NDK_HOME: ${{ github.workspace }}/android-ndk-${{ env.NDK_VERSION }}
+          ANDROID_API: 29
+        run: |
+          TOOLCHAIN=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64
+          SYSROOT=$TOOLCHAIN/sysroot
+          CC=$TOOLCHAIN/bin/armv7a-linux-androideabi${ANDROID_API}-clang
+          CXX=$TOOLCHAIN/bin/armv7a-linux-androideabi${ANDROID_API}-clang++
+          export CC CXX TOOLCHAIN SYSROOT
+
+          if [ "${{ matrix.java_version }}" = "8" ]; then
+            BOOT_JDK=/usr/lib/jvm/java-8-openjdk-amd64
+          else
+            BOOT_JDK=/usr/lib/jvm/java-17-openjdk-amd64
+          fi
+
+          bash configure \
+            --openjdk-target=armv7a-linux-androideabi \
+            --with-toolchain-type=clang \
+            --with-sysroot=${SYSROOT} \
+            --disable-warnings-as-errors \
+            --with-native-debug-symbols=none \
+            --with-jvm-variants=server \
+            --with-boot-jdk=${BOOT_JDK}
+
+          make hotspot images
+          mkdir -p ../out/arm32
+          cd build/linux-arm-server-release/images
+          if [ -d jre ]; then
+            mv jre jre-android
+          else
+            mkdir jre-android
+            cp -r jdk/bin jdk/lib jdk/release jre-android/
+          fi
+          zip -r jre-android-arm32-${{ matrix.java_version }}.zip jre-android
+          mv jre-android-arm32-${{ matrix.java_version }}.zip ../../../out/arm32/
+
+      - name: Upload JRE Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: jre-android-${{ matrix.java_version }}
+          path: |
+            jdk/out/arm64/jre-android-arm64-${{ matrix.java_version }}.zip
+            jdk/out/arm32/jre-android-arm32-${{ matrix.java_version }}.zip
