@@ -1,6 +1,12 @@
 name: Build Android JREs (8, 17, 21) for ARM32 + ARM64
 
 on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
   workflow_dispatch:
 
 jobs:
