@@ -7,7 +7,7 @@ on:
   pull_request:
     branches:
       - main
-  workflow_dispatch: # keeps manual run option
+  workflow_dispatch:
 
 jobs:
   build-java8:
@@ -47,6 +47,7 @@ jobs:
           CC=$TOOLCHAIN/bin/aarch64-linux-android${ANDROID_API}-clang
           CXX=$TOOLCHAIN/bin/aarch64-linux-android${ANDROID_API}-clang++
           export CC CXX TOOLCHAIN SYSROOT
+          chmod +x configure
           ./configure \
             --with-target-bits=64 \
             --with-jvm-variants=server \
@@ -72,6 +73,7 @@ jobs:
           CC=$TOOLCHAIN/bin/armv7a-linux-androideabi${ANDROID_API}-clang
           CXX=$TOOLCHAIN/bin/armv7a-linux-androideabi${ANDROID_API}-clang++
           export CC CXX TOOLCHAIN SYSROOT
+          chmod +x configure
           ./configure \
             --with-target-bits=32 \
             --with-jvm-variants=server \
@@ -127,6 +129,12 @@ jobs:
           unzip -q android-ndk-${NDK_VERSION}-linux.zip
           echo "ANDROID_NDK_HOME=$PWD/android-ndk-${NDK_VERSION}" >> $GITHUB_ENV
           echo "$PWD/android-ndk-${NDK_VERSION}/toolchains/llvm/prebuilt/linux-x86_64/bin" >> $GITHUB_PATH
+
+      # Patch config files for Android
+      - name: Patch config.sub/config.guess
+        run: |
+          cp $ANDROID_NDK_HOME/build/tools/config.sub make/autoconf/build-aux/config.sub
+          cp $ANDROID_NDK_HOME/build/tools/config.guess make/autoconf/build-aux/config.guess
 
       # ---------- ARM64 ----------
       - name: Configure & Build ARM64
